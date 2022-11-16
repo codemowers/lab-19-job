@@ -1,0 +1,83 @@
+---
+apiVersion: postgres-operator.crunchydata.com/v1beta1
+kind: PostgresCluster
+metadata:
+  name: postgres
+spec:
+  postgresVersion: 14
+  instances:
+    - name: instance1
+      replicas: 1
+      dataVolumeClaimSpec:
+        storageClassName: openebs-hostpath
+        accessModes:
+          - "ReadWriteOnce"
+        resources:
+          requests:
+            storage: 1Gi
+  backups:
+    pgbackrest:
+      repos: []
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: scripts
+data:
+  create-table.sql: |
+    CREATE TABLE IF NOT EXISTS app_user (
+      username varchar(45) NOT NULL,
+      password varchar(450) NOT NULL,
+      enabled integer NOT NULL DEFAULT '1',
+      PRIMARY KEY (username)
+    )
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: create-table
+spec:
+  template:
+    spec:
+      volumes:
+        - name: scripts
+          configMap:
+            name: scripts
+      containers:
+        - name: create-table
+          image: postgres
+          command:
+            - psql
+            - -f
+            - /scripts/create-table.sql
+          volumeMounts:
+            - name: scripts
+              mountPath: /scripts
+          env:
+            - name: PGHOST
+              valueFrom:
+                secretKeyRef:
+                  name: postgres-pguser-postgres
+                  key: host
+            - name: PGUSER
+              valueFrom:
+                secretKeyRef:
+                  name: postgres-pguser-postgres
+                  key: user
+            - name: PGDATABASE
+              valueFrom:
+                secretKeyRef:
+                  name: postgres-pguser-postgres
+                  key: dbname
+            - name: PGPASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: postgres-pguser-postgres
+                  key: password
+            - name: PGPORT
+              valueFrom:
+                secretKeyRef:
+                  name: postgres-pguser-postgres
+                  key: port
+      restartPolicy: Never
+  backoffLimit: 4
